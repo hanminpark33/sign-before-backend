@@ -142,15 +142,14 @@ def analyze():
     # 응답 파싱
     raw_text = response.content[0].text.strip()
     try:
-        # 마크다운 코드블록 제거
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
+        # 마크다운 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
+        import re
+        raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
+        raw_text = re.sub(r'\s*```$', '', raw_text).strip()
         result = json.loads(raw_text)
     except json.JSONDecodeError:
         return jsonify({
-            "error": "분석 결과를 처리하지 못했어요. 다시 시도해요."
+            "error": f"[JSON] {raw_text[:200]}"
         }), 500
 
     # 이미지 데이터는 응답에 포함하지 않음 (메모리에서 폐기됨)
