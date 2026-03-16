@@ -135,9 +135,7 @@ def analyze():
             ],
         )
     except anthropic.APIError as e:
-        return jsonify({
-            "error": f"[API] {type(e).__name__}: {str(e)}"
-        }), 502
+        return jsonify({"error": "분석 중 오류가 발생했어요. 잠시 후 다시 시도해요."}), 502
 
     # 응답 파싱
     raw_text = response.content[0].text.strip()
@@ -147,9 +145,7 @@ def analyze():
         end = raw_text.rindex('}') + 1
         result = json.loads(raw_text[start:end])
     except (ValueError, json.JSONDecodeError):
-        return jsonify({
-            "error": f"[JSON] {raw_text[:200]}"
-        }), 500
+        return jsonify({"error": "분석 결과를 처리하지 못했어요. 다시 시도해요."}), 500
 
     # 이미지 데이터는 응답에 포함하지 않음 (메모리에서 폐기됨)
     return jsonify(result)
