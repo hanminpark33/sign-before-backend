@@ -136,7 +136,7 @@ def analyze():
         )
     except anthropic.APIError as e:
         return jsonify({
-            "error": "분석을 완료하지 못했어요. 사진을 더 밝고 선명하게 찍어 다시 시도해요."
+            "error": f"[API] {type(e).__name__}: {str(e)}"
         }), 502
 
     # 응답 파싱
