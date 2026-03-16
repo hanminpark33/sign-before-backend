@@ -142,12 +142,11 @@ def analyze():
     # 응답 파싱
     raw_text = response.content[0].text.strip()
     try:
-        # 마크다운 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
-        import re
-        raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
-        raw_text = re.sub(r'\s*```$', '', raw_text).strip()
-        result = json.loads(raw_text)
-    except json.JSONDecodeError:
+        # { ... } 범위 직접 추출 — 코드블록/설명 텍스트 등 노이즈 제거
+        start = raw_text.index('{')
+        end = raw_text.rindex('}') + 1
+        result = json.loads(raw_text[start:end])
+    except (ValueError, json.JSONDecodeError):
         return jsonify({
             "error": f"[JSON] {raw_text[:200]}"
         }), 500
