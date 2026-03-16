@@ -32,20 +32,24 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB (Claude 5MB 제한 여유분)
 MAX_DIMENSION = 1920
 
 
-def compress_image(image_base64: str) -> str:
-    """이미지를 Claude API 제한(5MB) 이내로 압축 후 base64 반환."""
+def normalize_image(image_base64: str) -> str:
+    """이미지를 JPEG으로 정규화하고 Claude API 제한(5MB) 이내로 압축 후 base64 반환.
+    PNG 등 비JPEG 포맷도 모두 JPEG으로 변환해 media_type 불일치 방지."""
     raw = base64.b64decode(image_base64)
-    if len(raw) <= MAX_IMAGE_BYTES:
-        return image_base64  # 이미 작으면 그대로
-
     img = Image.open(io.BytesIO(raw)).convert("RGB")
 
     # 해상도 축소
     if max(img.size) > MAX_DIMENSION:
         img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
 
+    # 이미 작으면 품질 85로 JPEG 변환만
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    if buf.tell() <= MAX_IMAGE_BYTES:
+        return base64.b64encode(buf.getvalue()).decode()
+
     # JPEG 품질 조절로 목표 크기 맞추기
-    for quality in (85, 70, 55, 40):
+    for quality in (70, 55, 40):
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality)
         if buf.tell() <= MAX_IMAGE_BYTES:
@@ -92,9 +96,9 @@ def analyze():
     except Exception:
         return jsonify({"error": "이미지 형식을 확인해요."}), 400
 
-    # 이미지 압축 (Claude API 5MB 제한 대응)
+    # 이미지 정규화 (JPEG 변환 + Claude API 5MB 제한 대응)
     try:
-        image_base64 = compress_image(image_base64)
+        image_base64 = normalize_image(image_base64)
     except Exception:
         return jsonify({"error": "이미지를 처리하지 못했어요. 다시 시도해요."}), 400
 
