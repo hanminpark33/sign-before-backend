@@ -9,12 +9,14 @@
 """
 
 import os
+import io
 import json
 import base64
 import anthropic
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+from PIL import Image
 
 load_dotenv()
 
@@ -25,6 +27,34 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
+
+MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB (Claude 5MB 제한 여유분)
+MAX_DIMENSION = 1920
+
+
+def compress_image(image_base64: str) -> str:
+    """이미지를 Claude API 제한(5MB) 이내로 압축 후 base64 반환."""
+    raw = base64.b64decode(image_base64)
+    if len(raw) <= MAX_IMAGE_BYTES:
+        return image_base64  # 이미 작으면 그대로
+
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+
+    # 해상도 축소
+    if max(img.size) > MAX_DIMENSION:
+        img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
+
+    # JPEG 품질 조절로 목표 크기 맞추기
+    for quality in (85, 70, 55, 40):
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        if buf.tell() <= MAX_IMAGE_BYTES:
+            return base64.b64encode(buf.getvalue()).decode()
+
+    # 최저 품질로 강제 압축
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=30)
+    return base64.b64encode(buf.getvalue()).decode()
 
 
 def load_prompt(contract_type: str) -> str:
@@ -61,6 +91,12 @@ def analyze():
         base64.b64decode(image_base64, validate=True)
     except Exception:
         return jsonify({"error": "올바르지 않은 이미지 데이터입니다."}), 400
+
+    # 이미지 압축 (Claude API 5MB 제한 대응)
+    try:
+        image_base64 = compress_image(image_base64)
+    except Exception:
+        return jsonify({"error": "이미지를 처리할 수 없습니다. 다시 시도해주세요."}), 400
 
     # 프롬프트 로드
     try:
