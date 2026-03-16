@@ -74,29 +74,29 @@ def health():
 def analyze():
     data = request.get_json(silent=True)
     if not data:
-        return jsonify({"error": "요청 데이터가 없습니다."}), 400
+        return jsonify({"error": "요청 데이터가 없어요."}), 400
 
     # 국외이전 동의 확인
     if not data.get("consent_verified"):
-        return jsonify({"error": "개인정보 국외이전 동의가 필요합니다."}), 403
+        return jsonify({"error": "개인정보 국외이전 동의가 필요해요."}), 403
 
     image_base64 = data.get("image_base64")
     contract_type = data.get("contract_type", "lease")
 
     if not image_base64:
-        return jsonify({"error": "이미지 데이터가 없습니다."}), 400
+        return jsonify({"error": "이미지 데이터가 없어요."}), 400
 
     # base64 유효성 검사
     try:
         base64.b64decode(image_base64, validate=True)
     except Exception:
-        return jsonify({"error": "올바르지 않은 이미지 데이터입니다."}), 400
+        return jsonify({"error": "이미지 형식을 확인해요."}), 400
 
     # 이미지 압축 (Claude API 5MB 제한 대응)
     try:
         image_base64 = compress_image(image_base64)
     except Exception:
-        return jsonify({"error": "이미지를 처리할 수 없습니다. 다시 시도해주세요."}), 400
+        return jsonify({"error": "이미지를 처리하지 못했어요. 다시 시도해요."}), 400
 
     # 프롬프트 로드
     try:
@@ -132,7 +132,7 @@ def analyze():
         )
     except anthropic.APIError as e:
         return jsonify({
-            "error": "분석에 실패했습니다. 사진을 더 밝고 선명하게 찍어 다시 시도해주세요."
+            "error": "분석을 완료하지 못했어요. 사진을 더 밝고 선명하게 찍어 다시 시도해요."
         }), 502
 
     # 응답 파싱
@@ -146,7 +146,7 @@ def analyze():
         result = json.loads(raw_text)
     except json.JSONDecodeError:
         return jsonify({
-            "error": "분석 결과를 처리하지 못했습니다. 다시 시도해주세요."
+            "error": "분석 결과를 처리하지 못했어요. 다시 시도해요."
         }), 500
 
     # 이미지 데이터는 응답에 포함하지 않음 (메모리에서 폐기됨)
