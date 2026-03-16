@@ -23,13 +23,13 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
-MAX_IMAGE_BYTES = 4 * 1024 * 1024  # 4MB (Claude 5MB 제한 여유분)
-MAX_DIMENSION = 1920
+MAX_IMAGE_BYTES = 2 * 1024 * 1024  # 2MB — 빠른 응답 우선
+MAX_DIMENSION = 1024              # 계약서 OCR에 충분한 해상도
 
 
 def normalize_image(image_base64: str) -> str:
