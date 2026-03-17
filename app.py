@@ -62,11 +62,16 @@ def normalize_image(image_base64: str) -> str:
 
 
 def load_prompt(contract_type: str) -> str:
+    if not os.path.isdir(PROMPTS_DIR):
+        raise FileNotFoundError(f"프롬프트 디렉토리 없음: {PROMPTS_DIR}")
     path = os.path.join(PROMPTS_DIR, f"{contract_type}.txt")
     if not os.path.exists(path):
         raise ValueError(f"지원하지 않는 계약서 유형: {contract_type}")
     with open(path, encoding="utf-8") as f:
-        return f.read()
+        content = f.read().strip()
+    if not content:
+        raise ValueError(f"프롬프트 파일이 비어있음: {contract_type}")
+    return content
 
 
 @app.route("/health", methods=["GET"])
