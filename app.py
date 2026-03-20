@@ -10,13 +10,15 @@
 
 import os
 import io
+import re
 import json
 import base64
 import anthropic
+import pytesseract
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
-from PIL import Image
+from PIL import Image, ImageFilter
 
 load_dotenv()
 
@@ -31,12 +33,105 @@ PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 MAX_IMAGE_BYTES = 2 * 1024 * 1024  # 2MB — 빠른 응답 우선
 MAX_DIMENSION = 1024              # 계약서 OCR에 충분한 해상도
 
+# 개인정보 패턴 (주민등록번호, 계좌번호)
+RRN_PATTERN = re.compile(r'\d{6}\s*[-–]\s*\d{7}')
+ACCOUNT_PATTERN = re.compile(r'\d{3,4}\s*[-–]\s*\d{4,6}\s*[-–]\s*\d{4,6}(?:\s*[-–]\s*\d{2,3})?')
+
+
+def blur_sensitive_regions(img: Image.Image) -> Image.Image:
+    """Tesseract OCR로 텍스트 위치를 감지하고, 주민번호/계좌번호 영역을 블러 처리.
+    블러된 이미지를 반환. OCR 실패 시 원본 그대로 반환 (분석 중단 방지)."""
+    try:
+        # Tesseract OCR — 단어 단위 bounding box 추출 (한국어)
+        ocr_data = pytesseract.image_to_data(
+            img, lang='kor', output_type=pytesseract.Output.DICT
+        )
+    except Exception:
+        # Tesseract 오류 시 원본 반환 (분석 흐름 유지)
+        return img
+
+    n = len(ocr_data['text'])
+    if n == 0:
+        return img
+
+    # 연속 텍스트를 같은 줄(block+par+line) 기준으로 합쳐서 패턴 매칭
+    lines = {}  # (block, par, line) -> [(text, left, top, width, height), ...]
+    for i in range(n):
+        text = ocr_data['text'][i].strip()
+        if not text:
+            continue
+        key = (ocr_data['block_num'][i], ocr_data['par_num'][i], ocr_data['line_num'][i])
+        lines.setdefault(key, []).append({
+            'text': text,
+            'left': ocr_data['left'][i],
+            'top': ocr_data['top'][i],
+            'width': ocr_data['width'][i],
+            'height': ocr_data['height'][i],
+        })
+
+    # 블러할 영역 수집
+    blur_regions = []
+
+    for key, words in lines.items():
+        line_text = ' '.join(w['text'] for w in words)
+
+        for pattern in (RRN_PATTERN, ACCOUNT_PATTERN):
+            for match in pattern.finditer(line_text):
+                # 매칭된 텍스트가 포함된 단어들의 bounding box 합산
+                char_pos = 0
+                region_left = None
+                region_top = None
+                region_right = 0
+                region_bottom = 0
+
+                for w in words:
+                    w_start = char_pos
+                    w_end = char_pos + len(w['text'])
+                    # 이 단어가 매칭 범위와 겹치는지 확인
+                    if w_end > match.start() and w_start < match.end():
+                        if region_left is None:
+                            region_left = w['left']
+                            region_top = w['top']
+                        region_right = max(region_right, w['left'] + w['width'])
+                        region_bottom = max(region_bottom, w['top'] + w['height'])
+                    char_pos = w_end + 1  # +1 for space
+
+                if region_left is not None:
+                    # 여유 패딩 추가
+                    pad = 4
+                    blur_regions.append((
+                        max(0, region_left - pad),
+                        max(0, region_top - pad),
+                        min(img.width, region_right + pad),
+                        min(img.height, region_bottom + pad),
+                    ))
+
+    if not blur_regions:
+        return img
+
+    # 해당 영역만 강한 블러 적용
+    for (x1, y1, x2, y2) in blur_regions:
+        region = img.crop((x1, y1, x2, y2))
+        # 블러 강도: 반복 적용으로 완전히 식별 불가하게
+        for _ in range(5):
+            region = region.filter(ImageFilter.GaussianBlur(radius=10))
+        # 블러 위에 반투명 회색 오버레이 (이중 보호)
+        overlay = Image.new('RGB', region.size, (128, 128, 128))
+        region = Image.blend(region, overlay, alpha=0.5)
+        img.paste(region, (x1, y1))
+
+    return img
+
 
 def normalize_image(image_base64: str) -> str:
     """이미지를 JPEG으로 정규화하고 Claude API 제한(5MB) 이내로 압축 후 base64 반환.
-    PNG 등 비JPEG 포맷도 모두 JPEG으로 변환해 media_type 불일치 방지."""
+    PNG 등 비JPEG 포맷도 모두 JPEG으로 변환해 media_type 불일치 방지.
+    전송 전 주민번호/계좌번호 영역을 블러 처리."""
     raw = base64.b64decode(image_base64)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
+
+    # 개인정보 블러 처리 (해상도 축소 전, OCR 정확도 높은 상태에서 수행)
+    img = blur_sensitive_regions(img)
 
     # 해상도 축소
     if max(img.size) > MAX_DIMENSION:
