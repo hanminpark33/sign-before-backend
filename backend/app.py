@@ -20,7 +20,10 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from PIL import Image, ImageFilter
 
-load_dotenv()
+# 루트 .env (공통 키) → 프로젝트 .env (고유 설정) 순서로 로드
+_root = os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env')
+load_dotenv(_root)
+load_dotenv(override=True)
 
 app = Flask(__name__)
 CORS(app)
@@ -30,8 +33,8 @@ client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 
-MAX_IMAGE_BYTES = 2 * 1024 * 1024  # 2MB — 빠른 응답 우선
-MAX_DIMENSION = 1024              # 계약서 OCR에 충분한 해상도
+MAX_IMAGE_BYTES = 3.5 * 1024 * 1024  # 3.5MB — Claude Vision 5MB 제한 이내, OCR 정확도 우선
+MAX_DIMENSION = 1568                 # Claude Vision 최적 해상도 (한글 계약서 가독성 확보)
 
 # 개인정보 패턴 (주민등록번호, 계좌번호)
 RRN_PATTERN = re.compile(r'\d{6}\s*[-–]\s*\d{7}')
@@ -137,14 +140,14 @@ def normalize_image(image_base64: str) -> str:
     if max(img.size) > MAX_DIMENSION:
         img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
 
-    # 이미 작으면 품질 85로 JPEG 변환만
+    # 이미 작으면 품질 92로 JPEG 변환 (한글 OCR 정확도를 위해 고품질 유지)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
+    img.save(buf, format="JPEG", quality=92)
     if buf.tell() <= MAX_IMAGE_BYTES:
         return base64.b64encode(buf.getvalue()).decode()
 
     # JPEG 품질 조절로 목표 크기 맞추기
-    for quality in (70, 55, 40):
+    for quality in (82, 70, 55):
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality)
         if buf.tell() <= MAX_IMAGE_BYTES:
@@ -152,7 +155,7 @@ def normalize_image(image_base64: str) -> str:
 
     # 최저 품질로 강제 압축
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=30)
+    img.save(buf, format="JPEG", quality=45)
     return base64.b64encode(buf.getvalue()).decode()
 
 
